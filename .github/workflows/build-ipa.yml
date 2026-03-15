@@ -44,7 +44,8 @@ jobs:
         run: |
           xcodebuild archive \
             -scheme "${{ inputs.scheme_name }}" \
-            -destination "generic/platform=iOS Simulator" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
             -archivePath "$RUNNER_TEMP/build/${{ inputs.app_name }}.xcarchive" \
             IPHONEOS_DEPLOYMENT_TARGET="${{ inputs.min_os_version }}" \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \

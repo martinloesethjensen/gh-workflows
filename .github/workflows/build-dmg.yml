@@ -36,6 +36,7 @@ jobs:
         run: |
           xcodebuild archive \
             -scheme "${{ inputs.scheme_name }}" \
+            -configuration Release \
             -destination "generic/platform=macOS" \
             -archivePath "$RUNNER_TEMP/build/${{ inputs.app_name }}.xcarchive" \
             MACOSX_DEPLOYMENT_TARGET="${{ inputs.min_macos_version }}" \

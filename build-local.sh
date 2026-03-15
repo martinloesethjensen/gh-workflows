@@ -90,7 +90,8 @@ build_ipa() {
 
   xcodebuild archive \
     -scheme "$SCHEME" \
-    -destination "generic/platform=iOS Simulator" \
+    -configuration Release \
+    -destination "generic/platform=iOS" \
     -archivePath "$ARCHIVE" \
     IPHONEOS_DEPLOYMENT_TARGET="$MIN_IOS" \
     MARKETING_VERSION="$VERSION" \
@@ -127,6 +128,7 @@ build_dmg() {
 
   xcodebuild archive \
     -scheme "$SCHEME" \
+    -configuration Release \
     -destination "generic/platform=macOS" \
     -archivePath "$ARCHIVE" \
     MARKETING_VERSION="$VERSION" \
