@@ -1,0 +1,15 @@
+name: Update AltStore Source
+
+on:
+  repository_dispatch:
+    types:
+      - app_release
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    uses: martinloesethjensen/gh-workflows/.github/workflows/update-altstore-source.yml@main
+    secrets:
+      ALTSTORE_SOURCE_PAT: ${{ secrets.ALTSTORE_SOURCE_PAT }}

@@ -1,0 +1,56 @@
+name: Update AltStore Source
+
+on:
+  workflow_call:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout altstore-source
+        uses: actions/checkout@v4
+        with:
+          repository: martinloesethjensen/altstore-source
+          token: ${{ secrets.ALTSTORE_SOURCE_PAT }}
+          ref: main
+
+      - name: Prepend new version into apps.json
+        env:
+          BUNDLE_ID: ${{ github.event.client_payload.bundle_id }}
+          VERSION: ${{ github.event.client_payload.version }}
+          IPA_URL: ${{ github.event.client_payload.ipa_url }}
+          IPA_SIZE: ${{ github.event.client_payload.ipa_size }}
+          RELEASE_NOTES: ${{ github.event.client_payload.release_notes }}
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+
+          NEW_VERSION=$(jq -n \
+            --arg version       "$VERSION" \
+            --arg date          "$TODAY" \
+            --arg downloadURL   "$IPA_URL" \
+            --argjson size      "${IPA_SIZE:-0}" \
+            --arg localizedDesc "$RELEASE_NOTES" \
+            '{
+              version:            $version,
+              date:               $date,
+              downloadURL:        $downloadURL,
+              size:               $size,
+              localizedDescription: $localizedDesc
+            }')
+
+          # Prepend the new version object into the matching app's versions array
+          jq --arg bid "$BUNDLE_ID" \
+             --argjson newVer "$NEW_VERSION" \
+             '(.apps[] | select(.bundleIdentifier == $bid) | .versions) |= [$newVer] + .' \
+             apps.json > apps.json.tmp && mv apps.json.tmp apps.json
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apps.json
+          git commit -m "chore: add v${{ github.event.client_payload.version }} for ${{ github.event.client_payload.bundle_id }}"
+          git push origin main

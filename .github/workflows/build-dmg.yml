@@ -1,0 +1,85 @@
+name: Build and Release DMG
+
+on:
+  workflow_call:
+    inputs:
+      scheme_name:
+        description: Xcode scheme to build (must have a macOS target)
+        type: string
+        required: true
+      app_name:
+        description: App name used for the DMG filename
+        type: string
+        required: true
+      min_macos_version:
+        description: Minimum macOS deployment target (e.g. 13.0)
+        type: string
+        required: false
+        default: "13.0"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build macOS archive (unsigned)
+        run: |
+          xcodebuild archive \
+            -scheme "${{ inputs.scheme_name }}" \
+            -destination "generic/platform=macOS" \
+            -archivePath "$RUNNER_TEMP/build/${{ inputs.app_name }}.xcarchive" \
+            MACOSX_DEPLOYMENT_TARGET="${{ inputs.min_macos_version }}" \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SKIP_INSTALL=NO
+
+      - name: Package DMG
+        id: package
+        run: |
+          ARCHIVE="$RUNNER_TEMP/build/${{ inputs.app_name }}.xcarchive"
+          APP_PATH=$(find "${ARCHIVE}/Products" -name "*.app" | head -n 1)
+
+          if [[ -z "$APP_PATH" ]]; then
+            echo "Error: no .app found in archive"
+            exit 1
+          fi
+
+          DMG_STAGE="$RUNNER_TEMP/dmg-stage"
+          DMG_NAME="${{ inputs.app_name }}-${{ steps.version.outputs.tag }}.dmg"
+          DMG_PATH="$RUNNER_TEMP/${DMG_NAME}"
+
+          mkdir -p "$DMG_STAGE"
+          cp -r "$APP_PATH" "$DMG_STAGE/"
+          ln -s /Applications "$DMG_STAGE/Applications"
+
+          hdiutil create \
+            -volname "${{ inputs.app_name }} ${{ steps.version.outputs.version }}" \
+            -srcfolder "$DMG_STAGE" \
+            -ov \
+            -format UDZO \
+            "$DMG_PATH" \
+            > /dev/null
+
+          DMG_SIZE=$(stat -f%z "$DMG_PATH")
+
+          echo "dmg_path=${DMG_PATH}" >> "$GITHUB_OUTPUT"
+          echo "dmg_name=${DMG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "dmg_size=${DMG_SIZE}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload DMG to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.dmg_path }}
+          generate_release_notes: false

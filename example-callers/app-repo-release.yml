@@ -1,0 +1,17 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    uses: martinloesethjensen/gh-workflows/.github/workflows/build-ipa.yml@main
+    with:
+      scheme_name: MyApp # replace with your Xcode scheme
+      bundle_id: com.example.myapp # replace with your bundle ID
+      app_name: MyApp # replace with your app name (used in IPA filename)
+      # min_os_version: "16.0"   # optional, defaults to 16.0
+    secrets:
+      ALTSTORE_SOURCE_PAT: ${{ secrets.ALTSTORE_SOURCE_PAT }}

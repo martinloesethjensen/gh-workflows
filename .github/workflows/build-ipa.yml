@@ -1,0 +1,113 @@
+name: Build and Release IPA
+
+on:
+  workflow_call:
+    inputs:
+      scheme_name:
+        description: Xcode scheme to build
+        type: string
+        required: true
+      bundle_id:
+        description: App bundle identifier (e.g. com.example.myapp)
+        type: string
+        required: true
+      app_name:
+        description: App name used for the IPA filename
+        type: string
+        required: true
+      min_os_version:
+        description: Minimum iOS version
+        type: string
+        required: false
+        default: "16.0"
+    secrets:
+      ALTSTORE_SOURCE_PAT:
+        description: Fine-grained PAT with Contents read+write on martinloesethjensen/altstore-source
+        required: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build archive (unsigned)
+        run: |
+          xcodebuild archive \
+            -scheme "${{ inputs.scheme_name }}" \
+            -destination "generic/platform=iOS Simulator" \
+            -archivePath "$RUNNER_TEMP/build/${{ inputs.app_name }}.xcarchive" \
+            IPHONEOS_DEPLOYMENT_TARGET="${{ inputs.min_os_version }}" \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SKIP_INSTALL=NO
+
+      - name: Package IPA
+        id: package
+        run: |
+          ARCHIVE="$RUNNER_TEMP/build/${{ inputs.app_name }}.xcarchive"
+          IPA_NAME="${{ inputs.app_name }}-${{ steps.version.outputs.tag }}.ipa"
+          IPA_PATH="$RUNNER_TEMP/${IPA_NAME}"
+
+          # Find the .app inside the archive
+          APP_PATH=$(find "${ARCHIVE}/Products" -name "*.app" | head -n 1)
+
+          # Wrap in Payload/ and zip
+          PAYLOAD_DIR="$RUNNER_TEMP/Payload"
+          mkdir -p "${PAYLOAD_DIR}"
+          cp -r "${APP_PATH}" "${PAYLOAD_DIR}/"
+          (cd "$RUNNER_TEMP" && zip -r "${IPA_NAME}" Payload/)
+
+          IPA_SIZE=$(stat -f%z "${IPA_PATH}")
+
+          echo "ipa_path=${IPA_PATH}" >> "$GITHUB_OUTPUT"
+          echo "ipa_name=${IPA_NAME}" >> "$GITHUB_OUTPUT"
+          echo "ipa_size=${IPA_SIZE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.ipa_path }}
+          generate_release_notes: true
+
+      - name: Compute direct IPA download URL
+        id: ipa_url
+        run: |
+          # softprops/action-gh-release uploads assets to the release; derive the URL from the release tag
+          REPO="${{ github.repository }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          IPA_NAME="${{ steps.package.outputs.ipa_name }}"
+          URL="https://github.com/${REPO}/releases/download/v${TAG}/${IPA_NAME}"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch app_release to altstore-source
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.ALTSTORE_SOURCE_PAT }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/martinloesethjensen/altstore-source/dispatches \
+            --data @- <<EOF
+          {
+            "event_type": "app_release",
+            "client_payload": {
+              "bundle_id": "${{ inputs.bundle_id }}",
+              "version": "${{ steps.version.outputs.version }}",
+              "ipa_url": "${{ steps.ipa_url.outputs.url }}",
+              "ipa_size": ${{ steps.package.outputs.ipa_size }},
+              "release_notes": "${{ github.event.release.body || '' }}"
+            }
+          }
+          EOF
