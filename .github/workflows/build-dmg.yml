@@ -23,7 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        lfs: true
+        with:
+          lfs: true
 
       - name: Determine version from tag
         id: version
